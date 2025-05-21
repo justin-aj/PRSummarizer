@@ -56,7 +56,69 @@
 
 ---
 
-## ⚙️ Deployment Instructions
+## 🛠 Local Setup Instructions
+
+### Step-by-Step Setup
+
+1. **Clone the Repository (if not already done)**:
+   ```bash
+   git clone https://github.com/justin-aj/pr-summarizer.git
+   cd pr-summarizer
+   ```
+
+2. **Set Up Python Virtual Environment**:
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
+
+3. **Install Playwright Dependencies**:
+   ```bash
+   playwright install
+   ```
+
+4. **Prepare Configuration Files**:
+   - Place the following files in the project root directory (`pr-summarizer/`):
+     - `credentials.json`: OAuth client secret for Gmail API.
+     - `pr-summarizer-key.json`: GCP service account key.
+   - Create a `.env` file in the project root with the following content:
+     ```env
+     PROJECT_ID=your-gcp-project-id
+     TOPIC_NAME=your-pubsub-topic
+     SUBSCRIPTION_NAME=your-pubsub-subscription
+     BUCKET_NAME=your-gcp-bucket-name
+     GEMINI_API_KEY=your_gemini_api_key
+     ```
+     Replace the placeholders (`your-gcp-project-id`, `your-pubsub-topic`, etc.) with your actual GCP project details and Gemini API key.
+
+5. **Create GCP Resources (if not already created)**:
+   Even for local usage, the application requires GCP resources (Pub/Sub and Cloud Storage) since it interacts with Gmail API and stores results in GCP. Run the following commands to set up the necessary resources:
+   ```bash
+   gcloud pubsub topics create your-pubsub-topic --project=your-gcp-project-id
+   gcloud pubsub subscriptions create your-pubsub-subscription --topic=your-pubsub-topic --project=your-gcp-project-id
+   gsutil mb -p your-gcp-project-id gs://your-gcp-bucket-name
+   ```
+   Ensure your GCP service account key (`pr-summarizer-key.json`) has permissions for these resources.
+
+6. **Authenticate GCP Locally**:
+   Set the `GOOGLE_APPLICATION_CREDENTIALS` environment variable to point to your service account key.
+
+7. **Run the Application**:
+   - Execute the `streamer.py` script to start the PR Summarizer:
+     ```bash
+     python streamer.py
+     ```
+   - The first time you run it, a browser window will open to authenticate with your Gmail account via OAuth2. Follow the prompts to authorize the application. This will generate a `token.pickle` file in the project root, which will be reused for subsequent runs.
+
+8. **Monitor Output**:
+   - The script will monitor your Gmail inbox for new emails, classify them as press releases, extract content, and generate summaries using the Gemini API.
+   - Summarized content will be stored as JSON files in the specified GCP Cloud Storage bucket (`your-gcp-bucket-name`).
+   - Logs will be written to the console and, if configured, to GCP Cloud Logging.
+
+---
+
+## ⚙️ GCP Deployment Instructions
 
 ### Prerequisites
 
@@ -274,6 +336,3 @@ sudo journalctl -u pr-summarizer -f
    - Fine-tune classification models for specific industries
    - Implement company-specific summarization templates
    - Build ground truths and then compare the results to generate metrics
-
-
-
