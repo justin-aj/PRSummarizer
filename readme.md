@@ -7,7 +7,7 @@
 ## 🧠 Key Features
 
 * 📬 **Gmail Monitoring**: Real-time detection of incoming emails using Gmail API + Pub/Sub.
-* 🔎 **Content Extraction**: Inline HTML parsing and URL-based scraping via Playwright & Crawl4AI.
+* 🔎 **Content Extraction**: Inline HTML parsing and URL-based scraping via Crawl4AI.
 * 🧾 **AI Classification & Summarization**: Uses Gemini 2.0 Flash to:
 
   * Classify whether an email is a press release
@@ -81,7 +81,7 @@ gcloud compute instances create pr-summarizer-vm \
   --boot-disk-size=30GB
 
 # SSH into VM
-gcloud compute ssh pr-summarizer-vm --zone=us-east1-a
+gcloud compute ssh pr-summarizer-vm --zone=us-east1-d
 
 # Install packages
 sudo apt update && sudo apt install -y python3-pip python3-venv git
@@ -104,6 +104,8 @@ playwright install
 ```
 
 ### Configuration
+
+0. XXXX - Use your desired name for each application.
 
 1. Create a `.env` file:
 
@@ -138,7 +140,7 @@ gsutil mb -p utilitarian-mix-459622-c9 gs://prsummarized-files
 python streamer.py
 ```
 
-Authorize with your Gmail account. A `token.pickle` file will be created.
+Authorize with your Gmail account. A `token.pickle` file will be created or upload it after generating it locally.
 
 ### Run as a background service
 
@@ -174,21 +176,104 @@ sudo journalctl -u pr-summarizer -f
 
 ---
 
-## ⚡️ Performance & Edge Case Handling
+## Latency and Edge Case Handling
 
 ### Latency Optimization
 
-* **Asynchronous pipeline** via Pub/Sub and async URL fetches
-* **Selective filtering** to discard irrelevant content early
-* **Efficient Gemini API usage** to reduce token consumption
+1. **Asynchronous Processing**:
+   - Uses PubSub for asynchronous message handling
+   - Implements AsyncWebCrawler for non-blocking URL scraping
+   - Enables parallel processing of multiple message notifications
 
-### Edge Case Management
+2. **Selective Content Processing**:
+   - Dynamic filtering of HTML content with configurable thresholds
+   - Pruning of non-essential content to reduce processing time
+   - Focuses only on the newest email messages to minimize processing load
 
-* Handles nested MIME structures, inline HTML, malformed dates
-* Resilient to JS-heavy pages and missing meta content
-* Filters bot-generated or non-news content
+3. **Efficient API Usage**:
+   - Uses Gemini 2.0 Flash model for lower-latency AI processing
+   - Implements token refresh mechanism to avoid authentication delays
+   - Minimizes API calls by early filtering of non-press release content
 
----
+### Edge Case Handling
+
+1. **Email Format Variations**:
+   - Robust handling of multipart MIME types
+   - Recursively extracts HTML from nested email parts
+   - Supports both HTML and plain text emails with appropriate conversion
+   - Fallback mechanisms for poorly structured emails:
+     ```python
+     if not html_body:
+         snippet = msg_data.get('snippet', '')
+         if snippet:
+             html_body = f"<pre>{snippet}</pre>"
+         else:
+             html_body = "<pre>No content could be extracted from this email</pre>"
+     ```
+
+2. **URL Processing**:
+   - Resolves redirects to obtain final destination URLs
+   - Handles URL extraction from both href attributes and text content
+   - Implements timeout and error handling for URL requests
+
+3. **Content Parsing**:
+   - Multiple base64 decoding strategies (URL-safe and standard)
+   - BeautifulSoup for robust HTML parsing regardless of formatting
+   - Content filtering for removing irrelevant elements (scripts, styles, etc.)
+
+4. **Error Recovery**:
+   - Comprehensive try-except blocks throughout the codebase
+   - Detailed logging with timestamps for debugging
+   - Message acknowledgment handling to prevent data loss
+
+## Scaling Strategy
+
+### Multi-Company Expansion
+
+1. **Configuration-Driven Architecture**:
+   - Implement a company configuration file to manage multiple monitoring targets
+   - Store company-specific parameters (email filters, domains, classification rules)
+   - Enable separate storage paths for each company's results
+
+2. **Parallel Processing Implementation**:
+   - Create dedicated Pub/Sub topics and subscriptions per company
+   - Implement worker pool with configurable concurrency limits
+   - Use Cloud Functions or Cloud Run for scalable processing
+
+### Technical Scaling Approaches
+
+1. **Infrastructure Enhancements**:
+   - Migrate to container-based deployment using Cloud Run
+   - Implement autoscaling based on Pub/Sub queue depth
+
+2. **Performance Optimizations**:
+   ```
+   ┌────────────────┐     ┌────────────────┐     ┌────────────────┐
+   │ Email Listener │────▶│ Queue Manager  │────▶│ Worker Pool    │
+   └────────────────┘     └────────────────┘     └────────────────┘
+           │                                              │
+           ▼                                              ▼
+   ┌────────────────┐                           ┌────────────────┐
+   │ Config Manager │                           │ Result Storage │
+   └────────────────┘                           └────────────────┘
+   ```
+
+3. **Enhanced Monitoring and Reliability**:
+   - Implement health checks and automated recovery
+   - Set up alerting for processing failures or anomalies
+   - Develop a dashboard for monitoring system performance across companies
+
+### Data Handling at Scale
+
+1. **Structured Data Management**:
+   - Implement BigQuery or any OLAP integration for analytics across companies
+   - Create data retention and archiving policies
+   - Develop a standardized schema for cross-company analysis
+
+2. **AI Model Improvements**:
+   - Fine-tune classification models for specific industries
+   - Implement company-specific summarization templates
+   - Build ground truths and then compare the results to generate metrics
 
 
 
