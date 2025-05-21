@@ -80,12 +80,10 @@ print_with_timestamp("Gemini API initialized with model: models/gemini-2.0-flash
 
 
 class TimestampRetainingFilter(PruningContentFilter):
-    # Define common timestamp patterns
     TIMESTAMP_PATTERNS = [
-        r'\b\d{4}-\d{2}-\d{2}\b',  # e.g., 2025-05-20
-        r'\b[A-Za-z]+ \d{1,2}, \d{4}\b',  # e.g., May 20, 2025
-        r'\b\d{1,2} [A-Za-z]+ \d{4}\b',  # e.g., 20 May 2025
-        # Add more patterns as needed based on your websites
+        r'\b\d{4}-\d{2}-\d{2}\b',  # 2025-05-20
+        r'\b[A-Za-z]+ \d{1,2}, \d{4}\b',  # May 20, 2025
+        r'\b\d{1,2} [A-Za-z]+ \d{4}\b',  # 20 May 2025
     ]
 
     def should_retain(self, node):
@@ -334,7 +332,6 @@ def process_html_content(html):
 # Gemini Prompt
 def construct_prompt(subject, body, urls):
     logger.debug(f"URLS found in email: {urls}")
-    print("URLS", urls)
     return f"""
         Prompt:
 
@@ -433,21 +430,6 @@ def summarize_text(text):
         return {"headline": "", "key_result": "", "impacted_program": "", "next_step": ""}
 
 
-# Renew watch (Gmail notifications expire after 7 days)
-def renew_watch(service):
-    """Renew Gmail API push notifications (to be called every 5-6 days)."""
-    logger.info("Renewing Gmail watch")
-    print_with_timestamp("Renewing Gmail watch")
-    try:
-        history_id = setup_watch(service)
-        print_with_timestamp(f"Gmail watch renewed successfully with historyId: {history_id}")
-        return history_id
-    except Exception as e:
-        logger.error(f"Failed to renew Gmail watch: {str(e)}")
-        print_with_timestamp(f"ERROR: Failed to renew Gmail watch: {str(e)}")
-        return None
-
-
 # Save to GCS
 def save_to_gcs(data, filename):
     logger.info(f"Saving to GCS: {filename}")
@@ -472,7 +454,7 @@ def save_to_gcs(data, filename):
         return False
 
 
-# Process a single email message - modified to match the requested JSON structure
+# Process a single email message
 def process_email_message(service, message_id):
     logger.info(f"Processing email message: {message_id}")
     print_with_timestamp(f"Processing email message: {message_id}")
@@ -501,6 +483,7 @@ def process_email_message(service, message_id):
         summary = {}
         press_release_text = None
         press_release_url = None
+        press_release_website_timestamp = None
 
         if classification['press_release'] == "YES":
             print_with_timestamp("Email classified as press release, processing content")
@@ -529,7 +512,6 @@ def process_email_message(service, message_id):
         else:
             print_with_timestamp("Email not classified as press release, skipping summarization")
 
-        # New result structure that matches the requested format
         result = {
             "press_release_website_timestamp": press_release_website_timestamp,
             "email_timestamp": email_info['timestamp'],
@@ -600,6 +582,7 @@ def setup_watch(service):
 
 # Pub/Sub subscriber
 def process_pubsub_message(service):
+    """ Pub/Sub subscriber """
     logger.info("Starting Pub/Sub message processing (legacy mode)")
     print_with_timestamp("Starting Pub/Sub message processing (legacy mode)")
     subscriber = pubsub_v1.SubscriberClient(credentials=credentials_jwt)
