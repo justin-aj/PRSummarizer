@@ -50,7 +50,7 @@ print_with_timestamp(f"Using API scopes: {SCOPES}")
 
 # Google Cloud Logging client with service account credentials
 print_with_timestamp("Setting up Google Cloud Logging client")
-credentials = service_account.Credentials.from_service_account_file("service-account.json")
+credentials = service_account.Credentials.from_service_account_file("pr-summarizer-key.json")
 cloud_client = cloud_logging.Client(credentials=credentials, project=PROJECT_ID)
 
 audience = "https://pubsub.googleapis.com/google.pubsub.v1.Subscriber"
@@ -78,18 +78,35 @@ genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 gemini_model = genai.GenerativeModel("models/gemini-2.0-flash")
 print_with_timestamp("Gemini API initialized with model: models/gemini-2.0-flash")
 
+
+class TimestampRetainingFilter(PruningContentFilter):
+    # Define common timestamp patterns
+    TIMESTAMP_PATTERNS = [
+        r'\b\d{4}-\d{2}-\d{2}\b',  # e.g., 2025-05-20
+        r'\b[A-Za-z]+ \d{1,2}, \d{4}\b',  # e.g., May 20, 2025
+        r'\b\d{1,2} [A-Za-z]+ \d{4}\b',  # e.g., 20 May 2025
+        # Add more patterns as needed based on your websites
+    ]
+
+    def should_retain(self, node):
+        # Text content of the node
+        text = node.text_content()
+        # Check if the text matches any timestamp pattern
+        for pattern in self.TIMESTAMP_PATTERNS:
+            if re.search(pattern, text):
+                return True
+        # If no timestamp is found, use the default pruning logic
+        return super().should_retain(node)
+
 # Crawl4ai scraping function
 async def async_scrape_url(url):
     logger.info(f"Starting URL scrape: {url}")
     print_with_timestamp(f"Starting URL scrape: {url}")
     try:
-        # Step 1: Create a pruning filter
-        prune_filter = PruningContentFilter(
-            # Lower → more content retained, higher → more content pruned
-            threshold=0.45,
-            # "fixed" or "dynamic"
-            threshold_type="dynamic",
-            # Ignore nodes with <5 words
+        # Step 1: Create a custom pruning filter that retains timestamps
+        prune_filter = TimestampRetainingFilter(
+            threshold=0.3,  # Lower → more content retained, higher → more content pruned
+            threshold_type="dynamic",  # "fixed" or "dynamic"
             min_word_threshold=5
         )
         # Step 2: Insert it into a Markdown Generator
@@ -320,36 +337,37 @@ def construct_prompt(subject, body, urls):
     print("URLS", urls)
     return f"""
         Prompt:
-        
+
         You are given the content of an email. Classify whether the email is a press release. A press release is a formal announcement about company news, product launches, partnerships, or significant events, and is intended for public or media distribution. Do not classify stock updates, investor alerts, promotional emails, or subscription notices as press releases.
-        
+
         Return only a raw JSON object in the following format (on a single line):
-        
-        "press_release": "YES" or "NO"
-        
-        "type": "inline" (if the press release content is in the email body), "url" (if it's in a linked page), or null
-        
-        "url": a string (if type is "url"), otherwise null, original URL exactly as provided if type=url
-        
-        "text": the main body of the press release as a string (if type is "inline"), otherwise null
-        
+
+        {{
+        "press_release": "YES" or "NO",
+        "type": "inline" (if the press release content is in the email body), "url" (if it's in a linked page), or null,
+        "url": a string (if type is "url"), otherwise null,
+        "text": the main body of the press release as a string (if type is "inline"), otherwise null,
+        "timestamp": the release date in YYYY-MM-DD format (if type is "inline"), otherwise null
+        }}
+
         Rules:
         1. Preserve URLs exactly as received
         2. Never modify URL casing/parameters
         3. Return raw JSON without markdown
-        
+        4. For 'inline' type, extract the release date or timestamp from the email body and set 'timestamp'. If the date cannot be determined, set 'timestamp' to null.
+
         Examples:
-        
-        {{"press_release": "YES", "type": "url", "url": "https://xyz.com/press-release-partnership", "text": null}}
-        {{"press_release": "NO", "type": null, "url": null, "text": null}}
-        {{"press_release": "NO", "type": null, "url": null, "text": null}}
-        
+
+        {{"press_release": "YES", "type": "inline", "url": null, "text": "New York, NY - May 20, 2025 - Company XYZ announces...", "timestamp": "2025-05-20"}}
+        {{"press_release": "YES", "type": "url", "url": "https://xyz.com/press-release", "text": null, "timestamp": null}}
+        {{"press_release": "NO", "type": null, "url": null, "text": null, "timestamp": null}}
+
         Input:
-        
+
         SUBJECT: {subject}
         BODY: {body[:1000]}
         URLS: {'   ,   '.join(urls) if urls else 'None'}
-        
+
         Only return a single-line raw JSON response. Do not include code blocks or markdown.
         """
 
@@ -390,6 +408,8 @@ def summarize_text(text):
                 "impacted_program": the specific program, initiative, or area affected
         
                 "next_step": the immediate follow-up action or implication mentioned
+                
+                "timestamp": the release date in date format or timestamp format, or null if not found
         
             TEXT:
         
@@ -481,7 +501,6 @@ def process_email_message(service, message_id):
         summary = {}
         press_release_text = None
         press_release_url = None
-        press_release_website_timestamp = datetime.now(timezone.utc).isoformat()  # Default timestamp
 
         if classification['press_release'] == "YES":
             print_with_timestamp("Email classified as press release, processing content")
@@ -490,6 +509,7 @@ def process_email_message(service, message_id):
                 print_with_timestamp("Using inline text for press release")
                 text = str(body)
                 press_release_text = text
+                press_release_website_timestamp = classification['timestamp']
             elif classification['type'] == 'url' and classification['url']:
                 logger.info(f"Scraping URL for press release: {classification['url']}")
                 print_with_timestamp(f"Scraping URL for press release: {classification['url']}")
@@ -501,6 +521,7 @@ def process_email_message(service, message_id):
             if text:
                 print_with_timestamp("Generating summary from press release text")
                 summary = summarize_text(text)
+                press_release_website_timestamp = summary.get('timestamp', '')
                 logger.info(f"Generated summary: {summary.get('headline', '')}")
                 print_with_timestamp(f"Generated summary: {summary.get('headline', '')}")
             else:
@@ -542,6 +563,7 @@ def setup_watch(service):
     print_with_timestamp("Setting up Gmail watch")
 
     publisher = pubsub_v1.PublisherClient(credentials=credentials)
+
     topic_path = publisher.topic_path(PROJECT_ID, TOPIC_NAME)
     print_with_timestamp(f"Using Pub/Sub topic: {topic_path}")
 
