@@ -112,7 +112,8 @@ async def async_scrape_url(url):
 
         # Step 3: Pass it to CrawlerRunConfig
         config = CrawlerRunConfig(
-            markdown_generator=md_generator
+            markdown_generator=md_generator,
+            check_robots_txt=True
         )
 
         async with AsyncWebCrawler() as crawler:
